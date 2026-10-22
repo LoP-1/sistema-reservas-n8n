@@ -1,0 +1,533 @@
+{
+  "id": "DRUloAjf2pqYRs4v",
+  "name": "Asistente de Reservas Telegram",
+  "active": true,
+  "isArchived": false,
+  "versionId": "66c06984-a917-4b13-9966-f699d7266b4a",
+  "activeVersionId": "66c06984-a917-4b13-9966-f699d7266b4a",
+  "triggerCount": 1,
+  "nodeCount": 11,
+  "createdAt": "2026-10-09T23:40:27.057Z",
+  "updatedAt": "2026-10-22T07:51:38.97Z",
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "tags": [],
+  "parentFolderId": null,
+  "scopes": [
+    "execution:delete",
+    "execution:list",
+    "execution:read",
+    "execution:reveal",
+    "workflow:create",
+    "workflow:delete",
+    "workflow:disableRedaction",
+    "workflow:enableRedaction",
+    "workflow:execute",
+    "workflow:execute-chat",
+    "workflow:export",
+    "workflow:import",
+    "workflow:list",
+    "workflow:move",
+    "workflow:publish",
+    "workflow:read",
+    "workflow:share",
+    "workflow:unpublish",
+    "workflow:unshare",
+    "workflow:update"
+  ],
+  "canExecute": true,
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Analizar Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Enrutar Intencion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar Intencion": {
+      "main": [
+        [
+          {
+            "node": "Consultar Disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Crear Cita",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancelar Cita",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consultar Negocio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Disponibilidad": {
+      "main": [
+        [
+          {
+            "node": "Enviar Horarios Disponibles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Cita": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Cita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelar Cita": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Cancelacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Negocio": {
+      "main": [
+        [
+          {
+            "node": "Responder Consulta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-events",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "de164ea2-24da-4809-9ab4-65f8477a087d",
+      "name": "Webhook",
+      "webhookId": "84993fd7-4609-492a-9b5e-1cdd6c6fca73"
+    },
+    {
+      "id": "4878e323-cd02-47dd-89f5-fabb4a455f2a",
+      "name": "Analizar Mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map((item) => {\n  const body = item.json.body || item.json || {};\n  const textoOriginal = (body.texto || '').trim();\n  const textoLower = textoOriginal.toLowerCase();\n  const chatId = body.chat_id;\n  const usuario = body.usuario || body.username || 'Cliente';\n  const username = body.username ? `@${body.username}` : String(chatId || 'sin-contacto');\n\n  const hoy = new Date().toISOString().slice(0, 10);\n  const matchFecha = textoOriginal.match(/\\b(\\d{4}-\\d{2}-\\d{2})\\b/);\n  const matchHora = textoOriginal.match(/\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b/);\n  const fecha = matchFecha ? matchFecha[1] : hoy;\n  const hora = matchHora ? `${matchHora[1].padStart(2, '0')}:${matchHora[2]}` : null;\n\n  let intencion = 'consulta';\n  let citaId = null;\n  let servicio = 'Consulta General';\n\n  if (textoLower.includes('cancelar') || textoLower.startsWith('/cancelar')) {\n    intencion = 'cancelar';\n    const matchId = textoOriginal.match(/(?:cancelar|id|#)\\s*:?\\s*(\\d+)/i) || textoOriginal.match(/\\b(\\d+)\\b/);\n    citaId = matchId ? parseInt(matchId[1], 10) : 0;\n  } else if (\n    (hora && (matchFecha || textoLower.includes('reservar') || textoLower.includes('agendar') || textoLower.includes('cita') || textoLower.includes('turno'))) ||\n    textoLower.startsWith('/reservar') ||\n    textoLower.startsWith('reservar ') ||\n    textoLower.startsWith('agendar ')\n  ) {\n    if (hora) {\n      intencion = 'reservar';\n      let resto = textoOriginal\n        .replace(/\\/?(reservar|agendar|quiero|cita|turno|para|el|a las|en)/gi, ' ')\n        .replace(matchFecha ? matchFecha[0] : '', ' ')\n        .replace(matchHora[0], ' ')\n        .replace(/\\s+/g, ' ')\n        .trim();\n      if (resto.length >= 3) {\n        servicio = resto;\n      }\n    } else {\n      intencion = 'disponibilidad';\n    }\n  } else if (\n    textoLower.includes('cita') ||\n    textoLower.includes('reserva') ||\n    textoLower.includes('disponib') ||\n    textoLower.includes('horario') ||\n    textoLower.includes('agenda') ||\n    textoLower.includes('turno') ||\n    Boolean(matchFecha)\n  ) {\n    intencion = 'disponibilidad';\n  }\n\n  return {\n    json: {\n      chat_id: chatId,\n      usuario,\n      cliente_nombre: usuario,\n      cliente_contacto: username,\n      texto: textoOriginal,\n      intencion,\n      fecha,\n      hora,\n      fecha_hora: hora ? `${fecha}T${hora}:00` : null,\n      servicio,\n      cita_id: citaId\n    }\n  };\n});",
+        "language": "javaScript",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "4d31d282-ae74-4a56-9a5b-683e3c49f61a",
+      "name": "Enrutar Intencion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "mode": "rules",
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "consulta"
+        },
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intencion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "disponibilidad"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "disponibilidad",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intencion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "reservar"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "reservar",
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intencion }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "cancelar"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                }
+              },
+              "outputKey": "cancelar",
+              "renameOutput": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "0fabacf5-54c9-4efb-a744-dab45ae2ccbd",
+      "name": "Consultar Disponibilidad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        -240
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fecha",
+              "value": "={{ $json.fecha }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "url": "http://host.docker.internal:8000/citas/disponibles"
+      }
+    },
+    {
+      "id": "6e76ca28-9a37-41ff-be46-f12ae57c9f2b",
+      "name": "Enviar Horarios Disponibles",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -240
+      ],
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "={{ $('Analizar Mensaje').item.json.chat_id }}",
+        "text": "=¡Hola {{ $('Analizar Mensaje').item.json.usuario }}! 👋\n\n📅 Horarios disponibles para el *{{ $json.fecha }}*:\n{{ ($json.horarios_libres && $json.horarios_libres.length) ? '🕒 ' + $json.horarios_libres.join(', ') : '⚠️ No quedan horarios libres en esta fecha.' }}\n\n✅ *Para reservar*, envía un mensaje con la fecha, hora y servicio. Ejemplo:\n`reservar {{ $json.fecha }} {{ ($json.horarios_libres && $json.horarios_libres[0]) ? $json.horarios_libres[0] : '10:00' }} Consulta General`\n\n🔍 También puedes consultar otra fecha escribiendo:\n`disponibilidad 2026-10-25`"
+      },
+      "webhookId": "70083640-7e5c-42dc-9160-8f60b7e9a5d6",
+      "credentials": {
+        "telegramApi": {
+          "id": "k94e28qtNe7vn75d",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "6fc5e0ba-10c1-4264-b5e4-d03729a7f29f",
+      "name": "Crear Cita",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        -80
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "cliente_nombre",
+              "value": "={{ $json.cliente_nombre }}"
+            },
+            {
+              "name": "cliente_contacto",
+              "value": "={{ $json.cliente_contacto }}"
+            },
+            {
+              "name": "servicio",
+              "value": "={{ $json.servicio }}"
+            },
+            {
+              "name": "fecha_hora",
+              "value": "={{ $json.fecha_hora }}"
+            }
+          ]
+        },
+        "contentType": "json",
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "url": "http://host.docker.internal:8000/citas"
+      }
+    },
+    {
+      "id": "ba2fd7fa-92ec-485c-82a6-1a9dbfe0769c",
+      "name": "Confirmar Cita",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -80
+      ],
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "={{ $('Analizar Mensaje').item.json.chat_id }}",
+        "text": "={{ $json.id ? '✅ *¡Reserva Confirmada!*\\n\\n🆔 *Código de cita:* #' + $json.id + '\\n👤 *Cliente:* ' + $json.cliente_nombre + '\\n🩺 *Servicio:* ' + $json.servicio + '\\n📅 *Fecha y Hora:* ' + $json.fecha_hora.replace('T', ' ') + '\\n📌 *Estado:* ' + $json.estado + '\\n\\n💡 _Si necesitas cancelar tu cita más adelante, responde:_ `cancelar ' + $json.id + '`' : '⚠️ *No se pudo completar la reserva:*\\n' + ($json.detail || 'El horario seleccionado no está disponible.') + '\\n\\nEscribe `disponibilidad ' + $('Analizar Mensaje').item.json.fecha + '` para ver los horarios libres.' }}"
+      },
+      "webhookId": "a3a2295a-f8f6-4b47-887f-869442ea8a87",
+      "credentials": {
+        "telegramApi": {
+          "id": "k94e28qtNe7vn75d",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "17151c7f-59f9-403d-9875-244cca5b5605",
+      "name": "Cancelar Cita",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        80
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "url": "=http://host.docker.internal:8000/citas/{{ $json.cita_id }}/cancelar"
+      }
+    },
+    {
+      "id": "95154fa5-67f5-4900-8172-9bbbc7d4c06a",
+      "name": "Confirmar Cancelacion",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        80
+      ],
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "={{ $('Analizar Mensaje').item.json.chat_id }}",
+        "text": "={{ $json.id ? '🚫 *Cita Cancelada Exitosamente*\\n\\n🆔 *Cita:* #' + $json.id + '\\n📅 *Horario liberado:* ' + $json.fecha_hora.replace('T', ' ') + '\\n📌 *Estado actual:* ' + $json.estado : '⚠️ *No se pudo cancelar la cita:*\\n' + ($json.detail || 'Indica el número de cita. Ejemplo: cancelar 1') }}"
+      },
+      "webhookId": "33ed19b8-fc2a-43d0-a210-c18f540e08da",
+      "credentials": {
+        "telegramApi": {
+          "id": "k94e28qtNe7vn75d",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "396168ba-adb6-4bc0-83bb-c49b83d76ab0",
+      "name": "Consultar Negocio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        240
+      ],
+      "parameters": {
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "pregunta",
+              "value": "={{ $json.texto }}"
+            }
+          ]
+        },
+        "contentType": "json",
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "url": "http://host.docker.internal:8000/negocio/preguntar"
+      }
+    },
+    {
+      "id": "bd3db99d-d4dc-449c-9193-35e62ced73d1",
+      "name": "Responder Consulta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        240
+      ],
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "={{ $('Analizar Mensaje').item.json.chat_id }}",
+        "text": "=👋 ¡Hola {{ $('Analizar Mensaje').item.json.usuario }}!\n\n{{ $json.contenido ? '📌 *' + ($json.seccion || 'Información') + ':*\\n' + $json.contenido : '🤖 Soy el asistente virtual de reservas.' }}\n\n📋 *Comandos rápidos:*\n• Ver horarios: `disponibilidad 2026-10-15`\n• Agendar cita: `reservar 2026-10-15 10:00 Consulta General`\n• Cancelar cita: `cancelar <ID>`"
+      },
+      "webhookId": "d5014da1-9c25-4dfc-b4c1-87f6766ed989",
+      "credentials": {
+        "telegramApi": {
+          "id": "k94e28qtNe7vn75d",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "nodeGroups": [
+    {
+      "id": "bfb67712-51ef-4438-834f-e40f0092c502",
+      "name": "Triage y Enrutamiento",
+      "nodeNames": [
+        "Analizar Mensaje",
+        "Enrutar Intencion"
+      ],
+      "description": "Analiza el mensaje entrante y enruta según la intención del usuario"
+    },
+    {
+      "id": "0cbed555-738c-4da7-96b1-04e7b6c2e5fd",
+      "name": "Rama Disponibilidad",
+      "nodeNames": [
+        "Consultar Disponibilidad",
+        "Enviar Horarios Disponibles"
+      ],
+      "description": "Consulta horarios disponibles en FastAPI y responde en Telegram"
+    },
+    {
+      "id": "f3a8a1e5-436d-4996-a454-9a78f25cf6ea",
+      "name": "Rama Crear Reserva",
+      "nodeNames": [
+        "Crear Cita",
+        "Confirmar Cita"
+      ],
+      "description": "Registra una nueva cita confirmada en FastAPI y notifica en Telegram"
+    },
+    {
+      "id": "403a8239-6c46-4a8c-a684-c722937fcd5f",
+      "name": "Rama Cancelar Reserva",
+      "nodeNames": [
+        "Cancelar Cita",
+        "Confirmar Cancelacion"
+      ],
+      "description": "Cancela una cita existente por ID y confirma en Telegram"
+    },
+    {
+      "id": "377f425a-584f-4c09-a65a-1c33b416eb37",
+      "name": "Rama Consultas Negocio",
+      "nodeNames": [
+        "Consultar Negocio",
+        "Responder Consulta"
+      ],
+      "description": "Consulta la base de conocimiento del negocio y responde en Telegram"
+    }
+  ],
+  "activeVersion": {
+    "sameAsDraft": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  }
+}
